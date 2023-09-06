@@ -119,7 +119,7 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
     // main loop
     for t in 0..TB {
         for particle in &mut swarm {
-            let result = periodic_point(&particle.position);
+            let result = periodic_point(&particle.position, &mut rng);
             let mut new_error: f64 = result.fitness / CP / CP;
             if result.fitness < CP {
                 new_error = jacobian_determinant(&result.value, &particle.position);
@@ -171,9 +171,8 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
     )
 }
 
-fn periodic_point(param: &Vec<f64>) -> SearchResult {
+fn periodic_point(param: &Vec<f64>, rng: &mut ThreadRng) -> SearchResult {
     // init
-    let mut rng: ThreadRng = rand::thread_rng();
     let mut swarm: Vec<Particle> = (0..MP)
         .map(|_| {
             let initial_position: Vec<f64> = (0..DP)
