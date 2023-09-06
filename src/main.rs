@@ -103,20 +103,21 @@ fn jacobian_determinant(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
 }
 
 fn bifurcation_point() -> (SearchResult, SearchResult) {
-    let global_best: Arc<Mutex<Particle>> = Arc::new(Mutex::new(Particle::new(&vec![0.0; DB])));
+    let global_best: Arc<Mutex<SearchResult>> = Arc::new(Mutex::new(SearchResult::new(
+        &PARAM_LOWER_BOUND.to_vec(),
+        f64::MAX,
+        -1,
+    )));
 
     let global_best_child: Arc<Mutex<SearchResult>> =
         Arc::new(Mutex::new(SearchResult::new(&vec![0.0], 1.0 / CP, -1)));
-
-    let iter: Arc<Mutex<i32>> = Arc::new(Mutex::new(-1));
 
     let mut threads: Vec<JoinHandle<()>> = Vec::new();
 
     // main loop
     for _ in 0..MB {
-        let global_best: Arc<Mutex<Particle>> = Arc::clone(&global_best);
+        let global_best: Arc<Mutex<SearchResult>> = Arc::clone(&global_best);
         let global_best_child: Arc<Mutex<SearchResult>> = Arc::clone(&global_best_child);
-        let iter: Arc<Mutex<i32>> = Arc::clone(&iter);
 
         threads.push(thread::spawn(move || {
             // init
@@ -125,6 +126,11 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
                 .map(|i| rng.gen_range(PARAM_LOWER_BOUND[i]..PARAM_UPPER_BOUND[i]))
                 .collect();
             let mut particle: Particle = Particle::new(&initial_position);
+            let mut global_best_clone: SearchResult = SearchResult {
+                value: vec![0.0; DB],
+                fitness: f64::MAX,
+                iter: -1,
+            };
 
             for t in 0..TB {
                 // search periodic point
@@ -140,18 +146,15 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
                     particle.best_fitness = new_error;
                 }
 
-                let global_best_: MutexGuard<'_, Particle> = global_best.lock().unwrap();
-                let global_best_read: Particle = Particle {
-                    position: vec![0.0; 0],
-                    velocity: vec![0.0; 0],
-                    best_position: global_best_.best_position.clone(),
-                    best_fitness: global_best_.best_fitness,
-                };
+                let global_best_: MutexGuard<'_, SearchResult> = global_best.lock().unwrap();
+                global_best_clone.value = global_best_.value.clone();
+                global_best_clone.fitness = global_best_.fitness;
                 drop(global_best_);
-                if new_error < global_best_read.best_fitness {
-                    let mut global_best: MutexGuard<'_, Particle> = global_best.lock().unwrap();
-                    global_best.best_position = particle.best_position.clone();
-                    global_best.best_fitness = new_error;
+                if new_error < global_best_clone.fitness {
+                    let mut global_best: MutexGuard<'_, SearchResult> = global_best.lock().unwrap();
+                    global_best.value = particle.best_position.clone();
+                    global_best.fitness = new_error;
+                    global_best.iter = t;
                     // drop(global_best);
 
                     let mut global_best_child: MutexGuard<'_, SearchResult> =
@@ -162,9 +165,9 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
                     // drop(global_best_child);
                 }
 
-                if global_best_read.best_fitness < CB {
-                    let mut iter: MutexGuard<'_, i32> = iter.lock().unwrap();
-                    *iter = t;
+                if global_best_clone.fitness < CB {
+                    // let mut global_best: MutexGuard<'_, SearchResult> = global_best.lock().unwrap();
+                    // global_best.iter = t;
                     break;
                 }
 
@@ -174,8 +177,7 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
                     let r1: f64 = rng.gen_range(0.0..1.49445);
                     let r2: f64 = rng.gen_range(0.0..1.49445);
                     let cognitive: f64 = r1 * (particle.best_position[i] - particle.position[i]);
-                    let social: f64 =
-                        r2 * (global_best_read.best_position[i] - particle.position[i]);
+                    let social: f64 = r2 * (global_best_clone.value[i] - particle.position[i]);
                     particle.velocity[i] = inertia + cognitive + social;
                     particle.position[i] = (particle.position[i] + particle.velocity[i])
                         .max(PARAM_LOWER_BOUND[i])
@@ -189,15 +191,14 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
         thread.join().unwrap();
     }
 
-    let iter: MutexGuard<'_, i32> = iter.lock().unwrap();
-    let global_best: MutexGuard<'_, Particle> = global_best.lock().unwrap();
+    let global_best: MutexGuard<'_, SearchResult> = global_best.lock().unwrap();
     let global_best_child: MutexGuard<'_, SearchResult> = global_best_child.lock().unwrap();
 
     (
         SearchResult {
-            value: global_best.best_position.clone(),
-            fitness: global_best.best_fitness,
-            iter: *iter,
+            value: global_best.value.clone(),
+            fitness: global_best.fitness,
+            iter: global_best.iter,
         },
         SearchResult {
             value: global_best_child.value.clone(),
