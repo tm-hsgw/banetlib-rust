@@ -2,7 +2,11 @@ use particle::Particle;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 use search_result::SearchResult;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, Mutex, MutexGuard},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
+};
 
 mod particle;
 mod search_result;
@@ -63,8 +67,6 @@ fn jacobian_determinant(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
     // numerical diff
     let h: f64 = 1e-4;
 
-    // let mut m: na::Matrix<f64, na::Dyn, na::Dyn, na::VecStorage<_, na::Dyn, na::Dyn>> =
-    //     DMatrix::zeros(n, n);
     let mut m: Vec<na::Matrix<f64, na::Dyn, na::Dyn, na::VecStorage<_, na::Dyn, na::Dyn>>> =
         (0..PERIOD).map(|_| na::DMatrix::zeros(DP, DP)).collect();
     let mut xk: Vec<f64> = x.clone();
@@ -101,73 +103,107 @@ fn jacobian_determinant(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
 }
 
 fn bifurcation_point() -> (SearchResult, SearchResult) {
-    // init
-    let mut rng: ThreadRng = rand::thread_rng();
-    let mut swarm: Vec<Particle> = (0..MB)
-        .map(|_| {
+    let global_best: Arc<Mutex<Particle>> = Arc::new(Mutex::new(Particle::new(&vec![0.0; DB])));
+
+    let global_best_child: Arc<Mutex<SearchResult>> =
+        Arc::new(Mutex::new(SearchResult::new(&vec![0.0], 1.0 / CP, -1)));
+
+    let iter: Arc<Mutex<i32>> = Arc::new(Mutex::new(-1));
+
+    let mut threads: Vec<JoinHandle<()>> = Vec::new();
+
+    // main loop
+    for _ in 0..MB {
+        let global_best: Arc<Mutex<Particle>> = Arc::clone(&global_best);
+        let global_best_child: Arc<Mutex<SearchResult>> = Arc::clone(&global_best_child);
+        let iter: Arc<Mutex<i32>> = Arc::clone(&iter);
+
+        threads.push(thread::spawn(move || {
+            // init
+            let mut rng: ThreadRng = rand::thread_rng();
             let initial_position: Vec<f64> = (0..DB)
                 .map(|i| rng.gen_range(PARAM_LOWER_BOUND[i]..PARAM_UPPER_BOUND[i]))
                 .collect();
-            Particle::new(&initial_position)
-        })
-        .collect();
-    let mut global_best: Vec<f64> = vec![0.0; DB];
-    let mut global_best_fitness: f64 = f64::MAX;
-    let mut global_best_child: SearchResult = SearchResult::new(&vec![0.0], 1.0 / CP, -1);
+            let mut particle: Particle = Particle::new(&initial_position);
 
-    let mut iter: i32 = -1;
-    // main loop
-    for t in 0..TB {
-        for particle in &mut swarm {
-            let result = periodic_point(&particle.position, &mut rng);
-            let mut new_error: f64 = result.fitness / CP / CP;
-            if result.fitness < CP {
-                new_error = jacobian_determinant(&result.value, &particle.position);
+            for t in 0..TB {
+                // search periodic point
+                let child_result = periodic_point(&particle.position, &mut rng);
+                let mut new_error: f64 = child_result.fitness / CP / CP;
+                if child_result.fitness < CP {
+                    new_error = jacobian_determinant(&child_result.value, &particle.position);
+                }
+
+                // update bests
+                if new_error < particle.best_fitness {
+                    particle.best_position = particle.position.clone();
+                    particle.best_fitness = new_error;
+                }
+
+                let global_best_: MutexGuard<'_, Particle> = global_best.lock().unwrap();
+                let global_best_read: Particle = Particle {
+                    position: vec![0.0; 0],
+                    velocity: vec![0.0; 0],
+                    best_position: global_best_.best_position.clone(),
+                    best_fitness: global_best_.best_fitness,
+                };
+                drop(global_best_);
+                if new_error < global_best_read.best_fitness {
+                    let mut global_best: MutexGuard<'_, Particle> = global_best.lock().unwrap();
+                    global_best.best_position = particle.best_position.clone();
+                    global_best.best_fitness = new_error;
+                    // drop(global_best);
+
+                    let mut global_best_child: MutexGuard<'_, SearchResult> =
+                        global_best_child.lock().unwrap();
+                    global_best_child.value = child_result.value.clone();
+                    global_best_child.fitness = child_result.fitness;
+                    global_best_child.iter = child_result.iter;
+                    // drop(global_best_child);
+                }
+
+                if global_best_read.best_fitness < CB {
+                    let mut iter: MutexGuard<'_, i32> = iter.lock().unwrap();
+                    *iter = t;
+                    break;
+                }
+
+                // update position
+                for i in 0..DB {
+                    let inertia: f64 = 0.7 * particle.velocity[i];
+                    let r1: f64 = rng.gen_range(0.0..1.49445);
+                    let r2: f64 = rng.gen_range(0.0..1.49445);
+                    let cognitive: f64 = r1 * (particle.best_position[i] - particle.position[i]);
+                    let social: f64 =
+                        r2 * (global_best_read.best_position[i] - particle.position[i]);
+                    particle.velocity[i] = inertia + cognitive + social;
+                    particle.position[i] = (particle.position[i] + particle.velocity[i])
+                        .max(PARAM_LOWER_BOUND[i])
+                        .min(PARAM_UPPER_BOUND[i]);
+                }
             }
-
-            if new_error < particle.best_fitness {
-                particle.best_position = particle.position.clone();
-                particle.best_fitness = new_error;
-            }
-
-            if particle.best_fitness < global_best_fitness {
-                // debug
-                // println!("\r{}:{:.6e}     ", t, global_best_fitness);
-                global_best = particle.best_position.clone();
-                global_best_fitness = new_error;
-                global_best_child = result;
-            }
-        }
-
-        if global_best_fitness < CB {
-            // Early termination if the threshold is reached
-            iter = t;
-            break;
-        }
-
-        for particle in &mut swarm {
-            // move
-            for i in 0..DB {
-                let inertia: f64 = 0.7 * particle.velocity[i];
-                let r1: f64 = rng.gen_range(0.0..1.49445);
-                let r2: f64 = rng.gen_range(0.0..1.49445);
-                let cognitive: f64 = r1 * (particle.best_position[i] - particle.position[i]);
-                let social: f64 = r2 * (global_best[i] - particle.position[i]);
-                particle.velocity[i] = inertia + cognitive + social;
-                particle.position[i] = (particle.position[i] + particle.velocity[i])
-                    .max(PARAM_LOWER_BOUND[i])
-                    .min(PARAM_UPPER_BOUND[i]);
-            }
-        }
+        }));
     }
+
+    for thread in threads {
+        thread.join().unwrap();
+    }
+
+    let iter: MutexGuard<'_, i32> = iter.lock().unwrap();
+    let global_best: MutexGuard<'_, Particle> = global_best.lock().unwrap();
+    let global_best_child: MutexGuard<'_, SearchResult> = global_best_child.lock().unwrap();
 
     (
         SearchResult {
-            value: global_best,
-            fitness: global_best_fitness,
-            iter,
+            value: global_best.best_position.clone(),
+            fitness: global_best.best_fitness,
+            iter: *iter,
         },
-        global_best_child,
+        SearchResult {
+            value: global_best_child.value.clone(),
+            fitness: global_best_child.fitness,
+            iter: global_best_child.iter,
+        },
     )
 }
 
