@@ -57,10 +57,11 @@ fn main() {
     println!("First Run - Elapsed Time: {:?}", elapsed_time_1);
 }
 
-fn next(x: &mut Vec<f64>, l: &Vec<f64>) {
+fn next(x: &mut Vec<f64>, l: &Vec<f64>) -> bool {
     let px = x[0];
     x[0] = 1.0 - l[0] * x[0] * x[0] + x[1];
     x[1] = l[1] * px;
+    true
 }
 
 fn jacobian_determinant(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
@@ -74,15 +75,19 @@ fn jacobian_determinant(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
     for k in 0..PERIOD as usize {
         let prevx: Vec<f64> = xk.clone();
 
-        // TODO: try
-        next(&mut xk, &l);
+        let res: bool = next(&mut xk, &l);
+        if !res {
+            return 1e+20;
+        }
 
         for i in 0..DP {
             let mut qx: Vec<f64> = prevx.clone();
             qx[i] += h;
 
-            // TODO: try
-            next(&mut qx, &l);
+            let res: bool = next(&mut qx, &l);
+            if !res {
+                return 1e+15;
+            }
 
             for j in 0..DP {
                 m[k][(j, i)] = (qx[j] - xk[j]) / h;
@@ -270,7 +275,10 @@ fn periodic_point(param: &Vec<f64>, rng: &mut ThreadRng) -> SearchResult {
 fn periodic_error(z: &Vec<f64>, l: &Vec<f64>) -> f64 {
     let mut nz: Vec<f64> = z.clone();
     for _ in 0..PERIOD {
-        next(&mut nz, &l)
+        let res = next(&mut nz, &l);
+        if !res {
+            return 1e+10;
+        }
     }
 
     let mut dx: f64 = 0.0;
