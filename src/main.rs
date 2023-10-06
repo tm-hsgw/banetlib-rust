@@ -1,13 +1,12 @@
-extern crate rand;
 use particle::Particle;
-use rand::Rng;
-use rand::rngs::ThreadRng;
+use rand::{rngs::ThreadRng, Rng};
 use search_result::SearchResult;
 use std::{
     sync::{Arc, Mutex, MutexGuard},
     thread::{self, JoinHandle},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
+
 mod particle;
 mod search_result;
 
@@ -73,7 +72,6 @@ fn next(x: &mut Vec<f64>, l: &Vec<f64>) -> bool {
     x[0] = 1.0 - l[0] * x[0] * x[0] + x[1];
     x[1] = l[1] * px;
     true
-
     // chens
     // let maps: Vec<Box<dyn Fn(&Vec<f64>, &Vec<f64>) -> f64>> = vec![
     //     Box::new(|x, l| f0(x, l)),
@@ -235,16 +233,6 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
         threads.push(thread::spawn(move || {
             // init
             let mut rng: ThreadRng = rand::thread_rng();
-            // xorshift 置き換えただけだと速くならなかった
-            // let mut rng = rand_xorshift::XorShiftRng::seed_from_u64(
-            //     SystemTime::now()
-            //         .duration_since(UNIX_EPOCH)
-            //         .expect("Time went backwards")
-            //         .as_nanos()
-            //         .try_into()
-            //         .unwrap(),
-            // );
-
             let initial_position: Vec<f64> = (0..DB)
                 .map(|i| rng.gen_range(PARAM_LOWER_BOUND[i]..PARAM_UPPER_BOUND[i]))
                 .collect();
@@ -337,6 +325,86 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
     )
 }
 
+fn bifurcation_point_sel() -> (SearchResult, SearchResult) {
+    let mut rng: ThreadRng = rand::thread_rng();
+    let mut swarm: Vec<Particle> = (0..MB)
+        .map(|_| {
+            let initial_position: Vec<f64> = (0..DB)
+                .map(|i| rng.gen_range(PARAM_LOWER_BOUND[i]..PARAM_UPPER_BOUND[i]))
+                .collect();
+            Particle::new(&initial_position)
+        })
+        .collect();
+    let mut global_best: SearchResult =
+        SearchResult::new(&PARAM_LOWER_BOUND.to_vec(), f64::MAX, -1);
+    let mut global_best_child: SearchResult = SearchResult::new(&vec![0.0], f64::MAX, -1);
+
+    for t in 0..TB {
+        for particle in &mut swarm {
+            // search periodic point
+            let child_result = periodic_point(&particle.position, &mut rng);
+            let mut new_error: f64 = child_result.fitness / CP / CP;
+            if child_result.fitness < CP {
+                new_error = jacobian_determinant(&child_result.value, &particle.position);
+            }
+
+            if new_error < particle.best_fitness {
+                particle.best_position = particle.position.clone();
+                particle.best_fitness = new_error;
+            }
+
+            if particle.best_fitness < global_best.fitness {
+                global_best.value = particle.best_position.clone();
+                global_best.fitness = new_error;
+                global_best.iter = t;
+
+                global_best_child.value = child_result.value.clone();
+                global_best_child.fitness = child_result.fitness;
+                global_best_child.iter = child_result.iter;
+
+                // debug
+                // eprintln!("{}, {:.6e}", t, new_error);
+            }
+        }
+
+        if global_best.fitness < CB {
+            // Early termination if the threshold is reached
+            break;
+        }
+
+        for particle in &mut swarm {
+            // update position
+            for i in 0..DB {
+                let inertia: f64 = 0.7 * particle.velocity[i];
+                let r1: f64 = rng.gen_range(0.0..1.49445);
+                let r2: f64 = rng.gen_range(0.0..1.49445);
+                let cognitive: f64 = r1 * (particle.best_position[i] - particle.position[i]);
+                let social: f64 = r2 * (global_best.value[i] - particle.position[i]);
+                particle.velocity[i] = inertia + cognitive + social;
+                let mut nx: f64 = particle.position[i] + particle.velocity[i];
+                if nx < PARAM_LOWER_BOUND[i] || nx > PARAM_UPPER_BOUND[i] {
+                    particle.velocity[i] /= 10.;
+                    nx = rng.gen_range(PARAM_LOWER_BOUND[i]..PARAM_UPPER_BOUND[i]);
+                }
+                particle.position[i] = nx;
+            }
+        }
+    }
+
+    (
+        SearchResult {
+            value: global_best.value.clone(),
+            fitness: global_best.fitness,
+            iter: global_best.iter,
+        },
+        SearchResult {
+            value: global_best_child.value.clone(),
+            fitness: global_best_child.fitness,
+            iter: global_best_child.iter,
+        },
+    )
+}
+
 fn periodic_point(param: &Vec<f64>, rng: &mut ThreadRng) -> SearchResult {
     // init
     let mut swarm: Vec<Particle> = (0..MP)
@@ -382,9 +450,12 @@ fn periodic_point(param: &Vec<f64>, rng: &mut ThreadRng) -> SearchResult {
                 let cognitive: f64 = r1 * (particle.best_position[i] - particle.position[i]);
                 let social: f64 = r2 * (global_best[i] - particle.position[i]);
                 particle.velocity[i] = inertia + cognitive + social;
-                particle.position[i] = (particle.position[i] + particle.velocity[i])
-                    .max(STATE_LOWER_BOUND[i])
-                    .min(STATE_UPPER_BOUND[i]);
+                let mut nx: f64 = particle.position[i] + particle.velocity[i];
+                if nx < STATE_LOWER_BOUND[i] || nx > STATE_UPPER_BOUND[i] {
+                    particle.velocity[i] /= 10.;
+                    nx = rng.gen_range(STATE_LOWER_BOUND[i]..STATE_UPPER_BOUND[i]);
+                }
+                particle.position[i] = nx;
             }
         }
     }
