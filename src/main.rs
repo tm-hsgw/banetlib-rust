@@ -13,7 +13,7 @@ mod search_result;
 extern crate nalgebra as na;
 
 const PERIOD: i32 = 5;
-const MU: i32 = 1;
+const MU: i32 = -1;
 const CB: f64 = 1e-3;
 const CP: f64 = 1e-10;
 const DB: usize = 2;
@@ -40,7 +40,7 @@ fn main() {
     let start_time_1: Instant = Instant::now();
 
     for _ in 0..100 {
-        let (bif, pp) = bifurcation_point();
+        let (bif, pp) = bifurcation_point_sel();
 
         println!(
             "{},{},{:.6e},{},{},{:.6e},{:?}",
@@ -295,10 +295,13 @@ fn bifurcation_point() -> (SearchResult, SearchResult) {
                     particle.velocity[i] = inertia + cognitive + social;
                     let mut nx: f64 = particle.position[i] + particle.velocity[i];
                     if nx < PARAM_LOWER_BOUND[i] || nx > PARAM_UPPER_BOUND[i] {
-                        particle.velocity[i] /= 10.;
+                        particle.velocity[i] = 0.;
                         nx = rng.gen_range(PARAM_LOWER_BOUND[i]..PARAM_UPPER_BOUND[i]);
                     }
                     particle.position[i] = nx;
+                    // particle.position[i] = (particle.position[i] + particle.velocity[i])
+                    //     .max(PARAM_LOWER_BOUND[i])
+                    //     .min(PARAM_UPPER_BOUND[i]);
                 }
             }
         }));
@@ -383,10 +386,13 @@ fn bifurcation_point_sel() -> (SearchResult, SearchResult) {
                 particle.velocity[i] = inertia + cognitive + social;
                 let mut nx: f64 = particle.position[i] + particle.velocity[i];
                 if nx < PARAM_LOWER_BOUND[i] || nx > PARAM_UPPER_BOUND[i] {
-                    particle.velocity[i] /= 10.;
+                    particle.velocity[i] = 0.;
                     nx = rng.gen_range(PARAM_LOWER_BOUND[i]..PARAM_UPPER_BOUND[i]);
                 }
                 particle.position[i] = nx;
+                // particle.position[i] = (particle.position[i] + particle.velocity[i])
+                //     .max(PARAM_LOWER_BOUND[i])
+                //     .min(PARAM_UPPER_BOUND[i]);
             }
         }
     }
@@ -452,7 +458,7 @@ fn periodic_point(param: &Vec<f64>, rng: &mut ThreadRng) -> SearchResult {
                 particle.velocity[i] = inertia + cognitive + social;
                 let mut nx: f64 = particle.position[i] + particle.velocity[i];
                 if nx < STATE_LOWER_BOUND[i] || nx > STATE_UPPER_BOUND[i] {
-                    particle.velocity[i] /= 10.;
+                    particle.velocity[i] = 0.;
                     nx = rng.gen_range(STATE_LOWER_BOUND[i]..STATE_UPPER_BOUND[i]);
                 }
                 particle.position[i] = nx;
