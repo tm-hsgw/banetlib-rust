@@ -12,29 +12,29 @@ mod search_result;
 
 extern crate nalgebra as na;
 
-const PERIOD: i32 = 5;
+const PERIOD: i32 = 2;
 const MU: i32 = -1;
 const CB: f64 = 1e-3;
 const CP: f64 = 1e-10;
 const DB: usize = 2;
-const DP: usize = 2;
+const DP: usize = 3;
 const MB: usize = 30;
 const MP: usize = 20;
 const TB: i32 = 600;
 const TP: i32 = 300;
 // henon map
-const PARAM_LOWER_BOUND: [f64; 2] = [1.4, 0.08];
-const PARAM_UPPER_BOUND: [f64; 2] = [1.6, 0.28];
-const STATE_LOWER_BOUND: [f64; 2] = [-2., -2.];
-const STATE_UPPER_BOUND: [f64; 2] = [2., 2.];
+// const PARAM_LOWER_BOUND: [f64; 2] = [1.4, 0.08];
+// const PARAM_UPPER_BOUND: [f64; 2] = [1.6, 0.28];
+// const STATE_LOWER_BOUND: [f64; 2] = [-2., -2.];
+// const STATE_UPPER_BOUND: [f64; 2] = [2., 2.];
 
 // chens eq.
-// const PARAM_LOWER_BOUND: [f64; 2] = [42., 2.8];
-// const PARAM_UPPER_BOUND: [f64; 2] = [47., 3.3];
-// const STATE_LOWER_BOUND: [f64; 3] = [-20., -0.00001, -20.];
-// const STATE_UPPER_BOUND: [f64; 3] = [20., 0.00001, 20.];
-// const POINCARE_INDEX: usize = 1;
-// const POINCARE_VALUE: f64 = 0.;
+const PARAM_LOWER_BOUND: [f64; 2] = [42., 2.8];
+const PARAM_UPPER_BOUND: [f64; 2] = [47., 3.3];
+const STATE_LOWER_BOUND: [f64; 3] = [-20., -0.00001, -20.];
+const STATE_UPPER_BOUND: [f64; 3] = [20., 0.00001, 20.];
+const POINCARE_INDEX: usize = 1;
+const POINCARE_VALUE: f64 = 0.;
 
 fn main() {
     let start_time_1: Instant = Instant::now();
@@ -68,107 +68,107 @@ fn main() {
 
 fn next(x: &mut Vec<f64>, l: &Vec<f64>) -> bool {
     // henon map
-    let px = x[0];
-    x[0] = 1.0 - l[0] * x[0] * x[0] + x[1];
-    x[1] = l[1] * px;
-    true
+    // let px = x[0];
+    // x[0] = 1.0 - l[0] * x[0] * x[0] + x[1];
+    // x[1] = l[1] * px;
+    // true
     // chens
-    // let maps: Vec<Box<dyn Fn(&Vec<f64>, &Vec<f64>) -> f64>> = vec![
-    //     Box::new(|x, l| f0(x, l)),
-    //     Box::new(|x, l| f1(x, l)),
-    //     Box::new(|x, l| f2(x, l)),
-    // ];
+    let maps: Vec<Box<dyn Fn(&Vec<f64>, &Vec<f64>) -> f64>> = vec![
+        Box::new(|x, l| f0(x, l)),
+        Box::new(|x, l| f1(x, l)),
+        Box::new(|x, l| f2(x, l)),
+    ];
 
-    // let mut nx: Vec<f64> = x.clone();
-    // let mut h: f64 = 1e-3;
-    // rk(&mut nx, &l, h, &maps);
-    // let sign: bool = nx[POINCARE_INDEX] > POINCARE_VALUE;
+    let mut nx: Vec<f64> = x.clone();
+    let mut h: f64 = 1e-3;
+    rk(&mut nx, &l, h, &maps);
+    let sign: bool = nx[POINCARE_INDEX] > POINCARE_VALUE;
 
-    // let mut px: Vec<f64>;
+    let mut px: Vec<f64>;
 
-    // while h > 1e-9 {
-    //     for _ in 0..2000 {
-    //         px = nx.clone();
-    //         rk(&mut nx, &l, h, &maps);
+    while h > 1e-9 {
+        for _ in 0..2000 {
+            px = nx.clone();
+            rk(&mut nx, &l, h, &maps);
 
-    //         if (nx[POINCARE_INDEX] - POINCARE_VALUE).abs() < 1e-6 {
-    //             for i in 0..DP {
-    //                 x[i] = nx[i];
-    //             }
+            if (nx[POINCARE_INDEX] - POINCARE_VALUE).abs() < 1e-6 {
+                for i in 0..DP {
+                    x[i] = nx[i];
+                }
 
-    //             return true;
-    //         }
+                return true;
+            }
 
-    //         if (nx[POINCARE_INDEX] > POINCARE_VALUE) != sign {
-    //             nx = px.clone();
-    //             break;
-    //         }
-    //     }
+            if (nx[POINCARE_INDEX] > POINCARE_VALUE) != sign {
+                nx = px.clone();
+                break;
+            }
+        }
 
-    //     h /= 2.;
-    // }
+        h /= 2.;
+    }
 
-    // false
+    false
 }
 
 // chens
-// fn f0(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
-//     l[0] * (x[1] - x[0])
-// }
+fn f0(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
+    l[0] * (x[1] - x[0])
+}
 
-// fn f1(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
-//     (28. - l[0]) * x[0] - x[0] * x[2] + 28. * x[1]
-// }
+fn f1(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
+    (28. - l[0]) * x[0] - x[0] * x[2] + 28. * x[1]
+}
 
-// fn f2(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
-//     x[0] * x[1] - l[1] * x[2]
-// }
+fn f2(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
+    x[0] * x[1] - l[1] * x[2]
+}
 
 // continuous
-// fn rk(
-//     state: &mut Vec<f64>,
-//     param: &Vec<f64>,
-//     h: f64,
-//     f: &Vec<Box<dyn Fn(&Vec<f64>, &Vec<f64>) -> f64>>,
-// ) {
-//     let mut z: Vec<f64> = vec![0.0; DP];
-//     let mut k1: Vec<f64> = vec![0.0; DP];
-//     for i in 0..DP {
-//         let x: f64 = f[i](&state, &param);
-//         k1[i] = x;
-//     }
+fn rk(
+    state: &mut Vec<f64>,
+    param: &Vec<f64>,
+    h: f64,
+    f: &Vec<Box<dyn Fn(&Vec<f64>, &Vec<f64>) -> f64>>,
+) {
+    let mut z: Vec<f64> = vec![0.0; DP];
+    let mut k1: Vec<f64> = vec![0.0; DP];
+    for i in 0..DP {
+        let x: f64 = f[i](&state, &param);
+        k1[i] = x;
+    }
 
-//     for i in 0..DP {
-//         z[i] = state[i] + h / 2.0 * k1[i];
-//     }
+    for i in 0..DP {
+        z[i] = state[i] + h / 2.0 * k1[i];
+    }
 
-//     let mut k2: Vec<f64> = vec![0.0; DP];
-//     for i in 0..DP {
-//         let x: f64 = f[i](&z, &param);
-//         k2[i] = x;
-//     }
+    let mut k2: Vec<f64> = vec![0.0; DP];
+    for i in 0..DP {
+        let x: f64 = f[i](&z, &param);
+        k2[i] = x;
+    }
 
-//     for i in 0..DP {
-//         z[i] = state[i] + h / 2.0 * k2[i];
-//     }
+    for i in 0..DP {
+        z[i] = state[i] + h / 2.0 * k2[i];
+    }
 
-//     let mut k3: Vec<f64> = vec![0.0; DP];
-//     for i in 0..DP {
-//         let x: f64 = f[i](&z, &param);
-//         k3[i] = x;
-//     }
+    let mut k3: Vec<f64> = vec![0.0; DP];
+    for i in 0..DP {
+        let x: f64 = f[i](&z, &param);
+        k3[i] = x;
+    }
 
-//     for i in 0..DP {
-//         z[i] = state[i] + h * k3[i];
-//     }
+    for i in 0..DP {
+        z[i] = state[i] + h * k3[i];
+    }
 
-//     let mut k4: Vec<f64> = vec![0.0; DP];
-//     for i in 0..DP {
-//         let x: f64 = f[i](&z, &param);
-//         k4[i] = x;
-//         state[i] = state[i] + h / 6. * (k1[i] + 2. * k2[i] + 2. * k3[i] + k4[i]);
-//     }
-// }
+    let mut k4: Vec<f64> = vec![0.0; DP];
+    for i in 0..DP {
+        let x: f64 = f[i](&z, &param);
+        k4[i] = x;
+        state[i] = state[i] + h / 6. * (k1[i] + 2. * k2[i] + 2. * k3[i] + k4[i]);
+    }
+}
 
 fn jacobian_determinant(x: &Vec<f64>, l: &Vec<f64>) -> f64 {
     // numerical diff
